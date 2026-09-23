@@ -71,7 +71,9 @@ Full design, rejected alternatives and test results:
 dsb never runs anything as root. For a fixed root command (restart one
 service, read one drive's health), see the companion proposal
 [rootcall](docs/rootcall.md), which would replace custom polkit rules and
-`NOPASSWD` lines for fixed actions.
+`NOPASSWD` lines for fixed actions. More power comes from such companion
+packages, never from dsb itself
+([design](docs/design.md#growing-the-shell-a-core-and-companions)).
 
 ## Build and install
 

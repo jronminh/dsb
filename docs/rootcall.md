@@ -4,6 +4,9 @@
 [issue #1](https://github.com/jronminh/dsb/issues/1). This document records
 the needs survey behind it and the scope that came out of it.
 
+It is the first companion in the model of
+[a core and companions](design.md#growing-the-shell-a-core-and-companions).
+
 dsb never runs anything as root. Some jobs do need root, but always the same
 fixed command: restart one service, read one drive's health. rootcall would
 be a separate package that does only that:

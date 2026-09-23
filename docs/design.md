@@ -303,8 +303,45 @@ willing to grant once instead of handing out `sudo`:
 Not a use case: **a daemon's config dir**. `write = /etc/nginx` or
 `/etc/lighttpd` looks narrow, but nginx and lighttpd start as root and their
 config can run code as root (`load_module`, `user root;`, `include_shell`),
-so the grant is root. The same holds for most of `/etc`; `dsb-admin` warns
-about any `write =` under it.
+so the grant is root. The same holds for all of `/etc`, which is on the
+built-in deny list ([`standards.md`](standards.md)).
+
+## Growing the shell: a core and companions
+
+`adb shell` is powerful, but not because uid 2000 is. On its own, `shell`
+can do little; its power comes from privileged services around it that each
+do one thing on its behalf: `system_server` and `installd` behind `pm` and
+`settings`, init's `ctl.start` behind `bugreport`, `run-as` for app uids.
+The identity stays weak, and what the shell can do is the sum of those
+services.
+
+dsb grows the same way:
+
+- **The core is dsb:** the identity, the sandbox and the standards that
+  close every way to root. It stays small and changes rarely.
+- **Power comes from companions:** separate packages, each doing one
+  privileged thing. The first proposed is [rootcall](rootcall.md), for fixed
+  root commands. An action that takes arguments (mount this device, join
+  this network) would be another companion that checks its arguments
+  against a fixed shape, not an addition to rootcall.
+
+Three rules keep the model honest:
+
+1. **dsb never gains root.** Whatever power the shell has comes from the
+   installed companions, so the list of companions is the list of what the
+   shell can do beyond an unprivileged user.
+2. **Each companion is its own package, small enough to audit in one
+   sitting.** Not installed means not possible.
+3. **dsb does not know about companions.** An identity uses one only
+   through what dsb already grants: `commands =` for its client, `groups =`
+   for the group the companion checks.
+
+| Android | companion | Linux |
+|---|---|---|
+| `run-as PKG` | switch to another bounded uid | `dsb -u NAME` (the core) |
+| `ctl.start`, `bugreport` | run a fixed root service | rootcall (proposed) |
+| `logcat` | read the system log | `groups = systemd-journal` (the core) |
+| `pm`, `settings`, `cmd` | privileged actions with checked arguments | none yet; polkit for a session user |
 
 ## Testing
 
