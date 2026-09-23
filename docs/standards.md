@@ -256,7 +256,7 @@ reaches it.
   cannot know: a group that local sudo rules trust, a directory a root cron
   job reads. There is no syntax to remove a built-in entry. Granting root
   through dsb is never the right tool: that is what `sudo`, or a fixed
-  command through [rootcall](https://github.com/jronminh/dsb/issues/1), is
+  command through [rootcall](rootcall.md), is
   for.
 
 ```ini

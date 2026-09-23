@@ -69,8 +69,9 @@ Full design, rejected alternatives and test results:
 [`docs/standards.md`](docs/standards.md).
 
 dsb never runs anything as root. For a fixed root command (restart one
-service, reset one device), see the companion proposal
-[rootcall](https://github.com/jronminh/dsb/issues/1).
+service, read one drive's health), see the companion proposal
+[rootcall](docs/rootcall.md), which would replace custom polkit rules and
+`NOPASSWD` lines for fixed actions.
 
 ## Build and install
 
