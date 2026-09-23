@@ -197,8 +197,13 @@ static void generate(struct conf *c, const char *dir, const char *confpath,
             if (id->caps.n || id->caps_extra.n) {
                 fputs("AmbientCapabilities=", f); print_strs2(f, &id->caps, &id->caps_extra, "");
             }
-            fputs("ProtectKernelTunables=yes\nProtectKernelModules=yes\n"
+            fputs("ProtectKernelTunables=yes\n"
                   "ProtectControlGroups=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\n", f);
+            // It hides /usr/lib/modules with a mount under /usr, which a user
+            // namespace inherits locked, so overlayfs cannot use /usr as a
+            // lower layer. Modules stay out of reach without it: no
+            // CAP_SYS_MODULE in the bounding set, and ~@module below.
+            if (!id->namespaces) fputs("ProtectKernelModules=yes\n", f);
             // rule 5 (docs/standards.md): what nothing dsb runs needs...
             fputs("ProtectKernelLogs=yes\nProtectHostname=yes\nRemoveIPC=yes\n"
                   "SystemCallArchitectures=native\nProtectProc=invisible\n"

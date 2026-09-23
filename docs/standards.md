@@ -156,7 +156,7 @@ gets, with no key to turn them off:
 
 `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only`,
 `PrivateTmp`, `InaccessiblePaths=-/run/user`, `ProtectKernelTunables`,
-`ProtectKernelModules`, `ProtectKernelLogs`, `ProtectControlGroups`,
+`ProtectKernelLogs`, `ProtectControlGroups`,
 `ProtectHostname`, `ProtectProc=invisible`, `RestrictSUIDSGID`,
 `LockPersonality`, `RemoveIPC`, `SystemCallArchitectures=native`, and
 `SystemCallFilter=~@cpu-emulation @module @obsolete @raw-io @reboot @swap`.
@@ -167,7 +167,7 @@ Some follow from a grant:
 |---|---|
 | `ProtectClock`, `~@clock` | `CAP_SYS_TIME` is granted |
 | `RestrictRealtime` | `CAP_SYS_NICE` is granted |
-| `RestrictNamespaces`, `~@mount` | `namespaces = yes` |
+| `RestrictNamespaces`, `~@mount`, `ProtectKernelModules` | `namespaces = yes` (its hidden `/usr/lib/modules` is a mount under `/usr`, which stops an overlay on `/usr`; modules stay blocked by the empty bounding set and `~@module`) |
 | `MemoryDenyWriteExecute` | set only with `jit = no` |
 | `PrivateDevices` | a device group, or any `groups-extra`, is granted and `devices` is not `none` |
 | `PrivateNetwork`, `RestrictAddressFamilies=AF_UNIX` | set with `network = no`; otherwise `AF_UNIX AF_INET AF_INET6 AF_NETLINK`, plus `AF_PACKET` with `CAP_NET_RAW` |
@@ -187,7 +187,7 @@ temporary directory and runs `systemd-analyze security --offline=yes
 |---|---|
 | `commands = ...`, `network = no`, `jit = no` | 1.1 |
 | defaults | 1.8 |
-| every allowlisted key at once | 4.1 |
+| every allowlisted key at once | 4.3 |
 
 Above 4.5, an identity with only standard keys is an **error**: dsb or
 systemd changed, and a new directive in a later systemd shows up here

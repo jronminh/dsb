@@ -52,7 +52,7 @@ fi
 
 # the most exposure systemd-analyze may score a generated unit (rule 5 in
 # docs/standards.md). Measured on systemd 261: 1.1 with every default on,
-# 1.8 for a shell, 4.1 with every allowlisted key; above it only *-extra
+# 1.8 for a shell, 4.3 with every allowlisted key; above it only *-extra
 # grants (a warning) or a regression (an error) can go.
 MAX_EXPOSURE=4.5
 THRESHOLD=45        # --threshold counts tenths
