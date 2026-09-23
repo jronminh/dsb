@@ -44,6 +44,10 @@ Also out of scope: kernel or systemd sandbox escapes, and side channels.
   type into the caller's shell afterwards; the package sets
   `dev.tty.legacy_tiocsti = 0` and `dsb-admin` refuses to run with it on.
   Other terminal tricks (escape sequences) are possible, as with `sudo`.
+- The forbidden `write =` paths cover the base system, not every service:
+  a daemon that starts as root (nginx, lighttpd, cups, …) reads its config
+  under `/etc`, often with a way to run code. Granting such a directory
+  grants root; `dsb-admin` warns about any `write =` under `/etc`.
 - `commands =` matches programs, not their arguments.
 - With several `callers`, the socket is mode `0666` and `SO_PEERCRED` alone
   decides who may call.

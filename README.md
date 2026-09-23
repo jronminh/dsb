@@ -8,7 +8,7 @@
 
 ```sh
 dsb -u web mkdir -p /srv/www/app            # as identity "web", not as root
-dsb -u web -e /etc/nginx/sites-enabled/app   # sudoedit-style
+dsb -u web -e /srv/www/app/index.html        # sudoedit-style
 dsb                                          # a shell: "dsb> "
 dsb -l                                       # what may I do here?
 ```
@@ -85,7 +85,7 @@ env     = TERM COLORTERM LANG LANGUAGE LC_*
 shell    = yes
 
 [identity web]                        # dsb -u web ...
-write    = /srv/www /etc/nginx/sites-enabled
+write    = /srv/www
 commands = /usr/bin/mkdir /usr/bin/install /usr/bin/ln /usr/bin/rm
 callers  = alice
 

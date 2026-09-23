@@ -114,6 +114,12 @@ and any capability off a short allowlist, and it warns when `commands =`
 names a program that runs other programs (`sh`, `python3`, `find`, `env`,
 …), since allowing it lets the rest of the system through it.
 
+The forbidden list cannot name every file a root process reads: any
+service that starts as root reads its own config under `/etc`, and many
+configs can run code. `dsb-admin` therefore also warns about any `write =`
+under `/etc`, and the rule for the admin is the same as the list's: grant
+data, never config that root reads.
+
 The accepted trade-off, as with `adb shell`: any process a caller runs can
 call `dsb`. That is fine because the identity's power is small, written down
 in one file, and reviewed.
@@ -221,7 +227,7 @@ shell    = yes
 commands = *
 
 [identity web]                        # dsb -u web ...
-write    = /srv/www /etc/nginx/sites-enabled
+write    = /srv/www
 commands = /usr/bin/mkdir /usr/bin/install /usr/bin/ln /usr/bin/rm
 
 [identity probe]                      # a new uid per call, nothing left behind
@@ -277,20 +283,25 @@ users (their uids may still own files).
 Anything a user legitimately needs beyond their own files, that an admin is
 willing to grant once instead of handing out `sudo`:
 
-- **a service's config dir**: `write = /etc/nginx/sites-enabled` for the web
-  team, with no way to touch the rest of `/etc`;
+- **a service's data**: `write = /srv/www` for the web team, with no way to
+  touch `/etc` or the rest of the system;
 - **a device or log group** without the group itself on the user:
-  `groups = adm` for reading logs, `groups = dialout` for a serial port;
+  `groups = systemd-journal` for reading the system journal, `groups =
+  dialout` for a serial port;
 - **network probes**: `user = dynamic`, `caps = CAP_NET_RAW`, `commands =
   /usr/bin/ping`;
 - **a shared maintenance account** several people can use, each call logged
   in the journal with the caller's uid;
-- **userspace package managers** such as
-  [sudo-less](https://github.com/jronminh/sudo-less), where a package whose
-  only obstacle is one privileged step (a `mkdir` under `/etc/lighttpd`, a
-  directory in group `utmp`) runs that step through a narrow identity instead
-  of root. Root-executed config (`/etc/tmpfiles.d`, units, PAM, setuid) stays
-  out of reach by design.
+- **a clean account for testing**: an identity with no grants at all, a
+  shell and its own home, to check that something works for a fresh
+  unprivileged user; [sudo-less](https://github.com/jronminh/sudo-less) uses
+  one to test its installer.
+
+Not a use case: **a daemon's config dir**. `write = /etc/nginx` or
+`/etc/lighttpd` looks narrow, but nginx and lighttpd start as root and their
+config can run code as root (`load_module`, `user root;`, `include_shell`),
+so the grant is root. The same holds for most of `/etc`; `dsb-admin` warns
+about any `write =` under it.
 
 ## Testing
 

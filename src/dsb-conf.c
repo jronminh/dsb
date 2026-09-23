@@ -271,6 +271,9 @@ int conf_check(struct conf *c) {
             const char *w = id->write.v[j];
             if (w[0] != '/') { ERR("[identity %s]: write %s is not absolute", nm, w); continue; }
             if (access(w, F_OK)) WARN("[identity %s]: write %s does not exist; skipped", nm, w);
+            if (overlaps(w, "/etc"))
+                WARN("[identity %s]: write %s: services that start as root read their config "
+                     "under /etc; if one reads this path, the grant is root", nm, w);
             for (const char **f = forbidden_paths; *f; f++)
                 if (overlaps(w, *f)) {
                     ERR("[identity %s]: write %s overlaps %s, which root reads or executes", nm, w, *f);
