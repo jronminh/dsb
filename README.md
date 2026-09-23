@@ -47,10 +47,13 @@ dsb CMD ──unix socket + its own fds 0,1,2──▶ systemd (Accept=yes)
   groups; `ProtectSystem=strict` with only the `write =` paths writable;
   `NoNewPrivileges` and no capabilities beyond an allowlist; optionally
   `ExecPaths=` so only the listed commands can be executed at all.
-- **Never feed root.** `dsb-admin` refuses any `write =` path that root later
-  reads or executes (`/etc/sudoers*`, `/etc/systemd`, `/etc/pam.d`, `/usr`,
-  …), root-equivalent groups (`sudo`, `disk`, `docker`, …) and dangerous
-  capabilities.
+- **Never feed root.** Every grant is checked against a published standard
+  ([`docs/standards.md`](docs/standards.md)): `write =` only to data dirs no
+  package owns, groups from base-passwd's safe list, capabilities off
+  Spengler's root-equivalence list, and a `systemd-analyze security` score
+  for every unit. Outside that, `KEY-extra =` works with a warning; a
+  built-in deny list (`/etc`, `/usr`, `/run/user`, `sudo`, `disk`,
+  `CAP_SYS_ADMIN`, …) is out of reach of any key.
 
 Full design, rejected alternatives and test results:
 [`docs/design.md`](docs/design.md).
@@ -97,8 +100,10 @@ timeout  = 60
 ```
 
 Keys: `user`, `callers`, `shell`, `edit`, `commands`, `write`, `groups`,
-`caps`, `env`, `timeout`. The shipped [`etc/dsb.conf`](etc/dsb.conf)
-documents each one. A config with any error enables nothing.
+`caps` (and their `-extra` forms), `network`, `devices`, `jit`,
+`namespaces`, `env`, `timeout`; `deny-paths`, `deny-groups`, `deny-caps` in
+`[global]`. The shipped [`etc/dsb.conf`](etc/dsb.conf) documents each one.
+A config with any error enables nothing.
 
 ## Usage
 

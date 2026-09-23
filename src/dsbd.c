@@ -15,7 +15,9 @@
 //
 // Admin side (used by dsb-admin and the systemd generator):
 //
-//   dsbd --check      [--config FILE]   validate; "error:"/"warning:" lines
+//   dsbd --check      [--config FILE] [--dev]
+//                                        validate; "error:"/"warning:" lines
+//   dsbd --show-deny  [--config FILE]   the deny list: built in plus [global]
 //   dsbd --identities [--config FILE]   enabled identities, one per line
 //   dsbd --sysusers   [--config FILE]   sysusers.d lines for static users
 //   dsbd --generate DIR [--config FILE] [--dev --rundir DIR] [--dsbd PATH]
@@ -105,10 +107,17 @@ static int allowed_signal(int sig) {
            sig == SIGQUIT || sig == SIGWINCH;
 }
 
-static void print_strs(FILE *f, const struct strs *s, const char *none) {
-    if (s->n == 0) fputs(none, f);
-    for (size_t i = 0; i < s->n; i++) fprintf(f, "%s%s", i ? " " : "", s->v[i]);
+// A and B on one line, space-separated, or NONE if both are empty
+static void print_strs2(FILE *f, const struct strs *a, const struct strs *b, const char *none) {
+    if (a->n + b->n == 0) fputs(none, f);
+    for (size_t i = 0; i < a->n; i++) fprintf(f, "%s%s", i ? " " : "", a->v[i]);
+    for (size_t i = 0; i < b->n; i++) fprintf(f, "%s%s", i || a->n ? " " : "", b->v[i]);
     fputc('\n', f);
+}
+
+static void print_strs(FILE *f, const struct strs *s, const char *none) {
+    static const struct strs empty;
+    print_strs2(f, s, &empty, none);
 }
 
 static int is_dsb_user(const struct ident *id) {
@@ -172,23 +181,51 @@ static void generate(struct conf *c, const char *dir, const char *confpath,
                    "CollectMode=inactive-or-failed\n\n[Service]\n"
                    "ExecStart=%s --identity %s", confpath, id->name, dsbd, id->name);
         if (strcmp(confpath, DSB_CONF_DEFAULT)) fprintf(f, " --config %s", confpath);
+        if (id->write_extra.n || id->groups_extra.n || id->caps_extra.n)
+            fputs("\n# has *-extra grants: dsb-admin check only warns about its score", f);
         fputs("\nStandardInput=socket\nStandardOutput=journal\nStandardError=journal\n"
               "KillMode=control-group\n", f);
         if (!dev) {
             if (id->dynamic) fputs("DynamicUser=yes\n", f);
             else fprintf(f, "User=%s\n", id->user);
             if (is_dsb_user(id)) fprintf(f, "StateDirectory=dsb/%s\n", id->name);
-            if (id->groups.n) { fputs("SupplementaryGroups=", f); print_strs(f, &id->groups, ""); }
+            if (id->groups.n || id->groups_extra.n) {
+                fputs("SupplementaryGroups=", f); print_strs2(f, &id->groups, &id->groups_extra, "");
+            }
             fputs("CapabilityBoundingSet=", f);
-            print_strs(f, &id->caps, "");
-            if (id->caps.n) { fputs("AmbientCapabilities=", f); print_strs(f, &id->caps, ""); }
+            print_strs2(f, &id->caps, &id->caps_extra, "");
+            if (id->caps.n || id->caps_extra.n) {
+                fputs("AmbientCapabilities=", f); print_strs2(f, &id->caps, &id->caps_extra, "");
+            }
             fputs("ProtectKernelTunables=yes\nProtectKernelModules=yes\n"
                   "ProtectControlGroups=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\n", f);
+            // rule 5 (docs/standards.md): what nothing dsb runs needs...
+            fputs("ProtectKernelLogs=yes\nProtectHostname=yes\nRemoveIPC=yes\n"
+                  "SystemCallArchitectures=native\nProtectProc=invisible\n"
+                  "InaccessiblePaths=-/run/user\n"
+                  "SystemCallFilter=~@cpu-emulation @module @obsolete @raw-io @reboot @swap", f);
+            int clock = conf_has_cap(id, "CAP_SYS_TIME");
+            if (!clock) fputs(" @clock", f);
+            if (!id->namespaces) fputs(" @mount", f);
+            fputc('\n', f);
+            if (!clock) fputs("ProtectClock=yes\n", f);
+            if (!conf_has_cap(id, "CAP_SYS_NICE")) fputs("RestrictRealtime=yes\n", f);
+            // ...and what only some identities need, off when the config asks
+            if (!id->namespaces) fputs("RestrictNamespaces=yes\n", f);
+            if (!id->jit) fputs("MemoryDenyWriteExecute=yes\n", f);
+            if (!conf_wants_devices(id)) fputs("PrivateDevices=yes\n", f);
+            if (id->network)
+                fprintf(f, "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK%s\n",
+                        conf_has_cap(id, "CAP_NET_RAW") ? " AF_PACKET" : "");
+            else
+                fputs("PrivateNetwork=yes\nRestrictAddressFamilies=AF_UNIX\n", f);
         }
         fputs("NoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=read-only\nPrivateTmp=yes\n", f);
-        if (id->write.n) {
+        if (id->write.n || id->write_extra.n) {
             fputs("ReadWritePaths=", f);
             for (size_t j = 0; j < id->write.n; j++) fprintf(f, "%s-%s", j ? " " : "", id->write.v[j]);
+            for (size_t j = 0; j < id->write_extra.n; j++)
+                fprintf(f, "%s-%s", j || id->write.n ? " " : "", id->write_extra.v[j]);
             fputc('\n', f);
         }
         if (strcmp(id->commands.v[0], "*")) {
@@ -266,9 +303,9 @@ static void list(struct call *k) {
     fputs("callers   ", f); print_strs(f, &id->callers, "-");
     fprintf(f, "shell     %s\nedit      %s\n", id->shell ? "yes" : "no", id->edit ? "yes" : "no");
     fputs("commands  ", f); print_strs(f, &id->commands, "-");
-    fputs("write     ", f); print_strs(f, &id->write, "-");
-    fputs("groups    ", f); print_strs(f, &id->groups, "-");
-    fputs("caps      ", f); print_strs(f, &id->caps, "-");
+    fputs("write     ", f); print_strs2(f, &id->write, &id->write_extra, "-");
+    fputs("groups    ", f); print_strs2(f, &id->groups, &id->groups_extra, "-");
+    fputs("caps      ", f); print_strs2(f, &id->caps, &id->caps_extra, "-");
     if (id->timeout) fprintf(f, "timeout   %lds\n", id->timeout);
     else fputs("timeout   none\n", f);
     fputs("env       ", f); print_strs(f, &id->env, "-");
@@ -553,7 +590,7 @@ reply:;
 int main(int argc, char **argv) {
     const char *confpath = DSB_CONF_DEFAULT, *identity = NULL, *gendir = NULL;
     const char *rundir = "/run/dsb", *dsbd = DSBD_DEFAULT;
-    int check = 0, idents = 0, sysusers = 0, dev = 0;
+    int check = 0, idents = 0, sysusers = 0, dev = 0, deny = 0;
     for (int i = 1; i < argc; i++) {
         int more = i + 1 < argc;
         if (!strcmp(argv[i], "--identity") && more) identity = argv[++i];
@@ -562,10 +599,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--rundir") && more) rundir = argv[++i];
         else if (!strcmp(argv[i], "--dsbd") && more) dsbd = argv[++i];
         else if (!strcmp(argv[i], "--check")) check = 1;
+        else if (!strcmp(argv[i], "--show-deny")) deny = 1;
         else if (!strcmp(argv[i], "--identities")) idents = 1;
         else if (!strcmp(argv[i], "--sysusers")) sysusers = 1;
         else if (!strcmp(argv[i], "--dev")) dev = 1;
-        else die("usage: dsbd --identity NAME | --check | --identities | --sysusers |"
+        else die("usage: dsbd --identity NAME | --check | --show-deny | --identities | --sysusers |"
                  " --generate DIR [--dev] [--rundir DIR] [--dsbd PATH]  [--config FILE]");
     }
     struct conf c;
@@ -574,8 +612,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (identity) return serve(&c, identity);
+    if (deny) { conf_show_deny(&c); return 0; }
     if (check) {
-        int e = conf_check(&c);
+        int e = conf_check(&c, CONF_DEEP | (dev ? CONF_DEV : 0));
         if (e) printf("%s: %d error%s\n", confpath, e, e > 1 ? "s" : "");
         return e ? 1 : 0;
     }
@@ -593,7 +632,9 @@ int main(int argc, char **argv) {
     }
     if (gendir) {
         // a generator must never fail the boot: a bad config enables nothing
-        if (conf_check(&c)) { fprintf(stderr, "dsbd: dsb.conf has errors; no identity enabled\n"); return 0; }
+        // at boot: no dpkg queries (the generator must be fast and not fork
+        // package tools); dsb-admin apply ran the deep check already
+        if (conf_check(&c, dev ? CONF_DEV : 0)) { fprintf(stderr, "dsbd: dsb.conf has errors; no identity enabled\n"); return 0; }
         generate(&c, gendir, confpath, dev, rundir, dsbd);
         return 0;
     }

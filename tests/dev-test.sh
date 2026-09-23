@@ -14,6 +14,7 @@ W="$RT/dsb-test-rw"          # visible inside the sandbox (/tmp is private)
 C="$(mktemp -d)"
 ADMIN="$ROOT/src/dsb-admin"
 D="$ROOT/out/dsb"
+export DSBD="$ROOT/out/dsbd"   # also for the non-dev checks
 pass=0 fail=0
 
 cleanup() {
@@ -43,11 +44,11 @@ env     = TERM COLORTERM LANG LANGUAGE LC_* FOO*
 
 [identity dsb]
 shell = yes
-write = $W
+write-extra = $W
 
 [identity web]
 commands = /usr/bin/ls /usr/bin/id /usr/bin/cat
-write    = $W
+write-extra = $W
 timeout  = 2
 edit     = no
 
@@ -66,12 +67,78 @@ groups   = sudo
 caps     = CAP_SYS_ADMIN
 EOF
 
+cat > "$C/rules.conf" <<EOF
+[identity rules]
+user     = $(id -un)
+callers  = nobody
+commands = /usr/bin/id
+write    = /var/log /srv
+groups   = input
+caps     = CAP_NET_ADMIN CAP_BPF
+EOF
+cat > "$C/std.conf" <<EOF
+[global]
+callers    = $(id -un)
+deny-paths = /srv/private
+deny-caps  = CAP_KILL
+
+[identity plain]
+commands = /usr/bin/id
+
+[identity open]
+shell      = yes
+namespaces = yes
+caps       = CAP_SYS_TIME
+caps-extra = CAP_KILL
+
+[identity closed]
+commands = /usr/bin/id
+network  = no
+jit      = no
+groups   = video
+devices  = none
+write    = /srv/private/x
+EOF
+
 echo "== policy check"
 check "valid config passes"          0 "ok$"     -- "$ADMIN" --dev --config "$C/dsb.conf" check
 cp "$C/bad.conf" "$C/conf.d/bad.conf"
 check "bad config: 6 errors"         1 "6 errors" -- "$ADMIN" --dev --config "$C/dsb.conf" check
 check "bad config is not applied"    1 "nothing changed" -- "$ADMIN" --dev --config "$C/dsb.conf" apply
 rm "$C/conf.d/bad.conf"
+R() { "$ADMIN" --config "$C/rules.conf" check; }
+check "rule 1: a person is refused"  1 "only dsb, dsb-NAME or dynamic" -- R
+check "rule 2: input is not std"     1 "group input is outside" -- R
+check "rule 3: NET_ADMIN needs -extra" 1 "CAP_NET_ADMIN is outside" -- R
+check "rule 3: BPF is denied"        1 "CAP_BPF leads to root" -- R
+check "rule 4: /var/log is not std"  1 "write /var/log is outside" -- R
+check "rule 4: /srv itself is not"   1 "write /srv is outside" -- R
+S() { "$ADMIN" --config "$C/std.conf" check; }
+check "deny-caps adds to the list"   1 "CAP_KILL leads to root: added" -- S
+check "deny-paths adds to the list"  1 "/srv/private/x overlaps /srv/private" -- S
+check "--show-deny lists both"       0 "cap +CAP_KILL +added" -- "$ADMIN" --config "$C/std.conf" check --show-deny
+check "--show-deny has the built-ins" 0 "path +/run/user" -- "$ADMIN" --config "$C/std.conf" check --show-deny
+printf '[identity x]\ndeny-paths = /x\n' > "$C/global.conf"
+check "deny-paths only in [global]"  1 "only in \\[global\\]" -- "$ROOT/out/dsbd" --check --config "$C/global.conf"
+
+echo "== generated units (rule 5)"
+sed -i -e '/^deny-caps/d' -e '/^write    = \/srv/d' "$C/std.conf"
+mkdir "$C/u"; "$ROOT/out/dsbd" --generate "$C/u" --config "$C/std.conf" >/dev/null
+P="$C/u/dsb-plain@.service" O="$C/u/dsb-open@.service" X="$C/u/dsb-closed@.service"
+check "/run/user is inaccessible"    0 "" -- grep -qx 'InaccessiblePaths=-/run/user' "$P"
+check "no devices by default"        0 "" -- grep -qx 'PrivateDevices=yes' "$P"
+check "no namespaces by default"     0 "" -- grep -qx 'RestrictNamespaces=yes' "$P"
+check "clock protected by default"   0 "" -- grep -qx 'ProtectClock=yes' "$P"
+check "network by default"           1 "" -- grep -q 'PrivateNetwork' "$P"
+check "namespaces = yes lifts it"    1 "" -- grep -qE 'RestrictNamespaces|@mount' "$O"
+check "CAP_SYS_TIME lifts ProtectClock" 1 "" -- grep -qE 'ProtectClock|@clock' "$O"
+check "caps-extra is granted"        0 "" -- grep -qx 'AmbientCapabilities=CAP_SYS_TIME CAP_KILL' "$O"
+check "network = no"                 0 "" -- grep -qx 'PrivateNetwork=yes' "$X"
+check "jit = no"                     0 "" -- grep -qx 'MemoryDenyWriteExecute=yes' "$X"
+check "devices = none despite video" 0 "" -- grep -qx 'PrivateDevices=yes' "$X"
+if systemd-analyze security --help 2>/dev/null | grep -q -- --offline; then
+  check "units score within the limit" 0 "ok$" -- S
+fi
 
 echo "== apply"
 printf '[identity gone]\ncommands = /usr/bin/id\n' > "$C/conf.d/gone.conf"

@@ -104,21 +104,23 @@ kernel. None depends on what command the caller sends.
 | **commands** (when `commands =` is a list) | `dsbd` checks the resolved program; the unit gets `NoExecPaths=/` + `ExecPaths=` those programs, the libraries, `dsbd` and (with `shell = yes`) the shells | a shell, script or allowed program cannot `exec` anything off the list: the kernel answers `Permission denied` |
 
 The filesystem lock is what keeps the rule **never feed root** honest: paths
-that root later reads or executes (`/etc/sudoers*`, `/etc/systemd`,
-`/etc/tmpfiles.d`, `/etc/udev`, `/etc/pam.d`, `/etc/polkit-1`,
-`/etc/ld.so.*`, cron, `/etc/passwd` and friends, `/etc/apt`,
-`/var/lib/dpkg`, `/etc/dsb` itself, `/usr`, `/boot`, …) must never be
-writable. `dsb-admin` refuses a `write =` that equals, contains or lies under
-any of them, a root-equivalent group (`sudo`, `disk`, `docker`, `shadow`, …)
-and any capability off a short allowlist, and it warns when `commands =`
-names a program that runs other programs (`sh`, `python3`, `find`, `env`,
-…), since allowing it lets the rest of the system through it.
+that root later reads or executes must never be writable. A denylist of such
+paths fails open, since whatever it forgets is allowed, so `dsb-admin check`
+works from allowlists tied to published standards
+([`standards.md`](standards.md)): `write =` only below `/srv`, `/var/lib`,
+`/var/cache` or `/var/www` and owned by no package; groups from
+base-passwd's safe list; capabilities off Spengler's root-equivalence list;
+a `systemd-analyze security` score for every generated unit. Outside those,
+`KEY-extra =` works with a warning. A built-in deny list (`/etc`, `/usr`,
+`/run/user`, `/var/lib/dpkg`, `sudo`, `disk`, `docker`, `CAP_SYS_ADMIN`, …)
+is out of reach of any key; `[global] deny-*` can extend it, nothing can
+shrink it. It also warns when `commands =` names a program that runs other
+programs (`sh`, `python3`, `find`, `env`, …), since allowing it lets the
+rest of the system through it.
 
-The forbidden list cannot name every file a root process reads: any
-service that starts as root reads its own config under `/etc`, and many
-configs can run code. `dsb-admin` therefore also warns about any `write =`
-under `/etc`, and the rule for the admin is the same as the list's: grant
-data, never config that root reads.
+The target user follows the same rule: only `dsb`, `dsb-NAME` or a dynamic
+uid, never a person (whose user manager, reachable through `/run/user`,
+would run code outside the sandbox) or another service.
 
 The accepted trade-off, as with `adb shell`: any process a caller runs can
 call `dsb`. That is fine because the identity's power is small, written down
@@ -237,9 +239,10 @@ caps     = CAP_NET_RAW
 timeout  = 60
 ```
 
-Keys per identity: `user` (default `dsb-NAME`; an existing user; or
+Keys per identity: `user` (default `dsb-NAME`; another `dsb-*` name; or
 `dynamic`), `callers`, `shell` (default no), `edit` (default yes), `commands`
-(default `*`), `write`, `groups`, `caps`, `env`, `timeout`. Unknown keys and
+(default `*`), `write`, `groups`, `caps` and their `-extra` forms,
+`network`, `devices`, `jit`, `namespaces`, `env`, `timeout`. Unknown keys and
 sections are errors. The reference is the top of the shipped file and
 `src/dsb-conf.h`.
 

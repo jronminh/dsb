@@ -39,7 +39,7 @@ cat > "$R/usr/lib/sysctl.d/60-dsb.conf" <<'EOF'
 # type into it (TIOCSTI).
 dev.tty.legacy_tiocsti = 0
 EOF
-install -m 644 README.md docs/design.md SECURITY.md "$R/usr/share/doc/dsb/"
+install -m 644 README.md docs/design.md docs/standards.md SECURITY.md "$R/usr/share/doc/dsb/"
 
 mkdir -p "$R/DEBIAN"
 cat > "$R/DEBIAN/control" <<EOF

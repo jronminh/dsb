@@ -3,7 +3,11 @@
 # truth; units are generated from it at boot and on every apply
 # (dsb-generator), users are created from it (systemd-sysusers).
 #
-#   dsb-admin check    validate /etc/dsb/dsb.conf and conf.d/*.conf
+#   dsb-admin check    validate /etc/dsb/dsb.conf and conf.d/*.conf against
+#                       docs/standards.md, and score the units it generates
+#   dsb-admin check --show-deny
+#                       the deny list no key can reach: built in plus
+#                       [global] deny-paths, deny-groups, deny-caps
 #   dsb-admin apply    validate, create the identities' users, regenerate
 #                       the units, (re)start their sockets, stop removed ones
 #   dsb-admin list     enabled identities and their sockets
@@ -19,7 +23,7 @@ CONF=/etc/dsb/dsb.conf
 DEV=
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,6 +50,40 @@ else
   SC=systemctl
 fi
 
+# the most exposure systemd-analyze may score a generated unit (rule 5 in
+# docs/standards.md). Measured on systemd 261: 1.1 with every default on,
+# 1.8 for a shell, 4.1 with every allowlisted key; above it only *-extra
+# grants (a warning) or a regression (an error) can go.
+MAX_EXPOSURE=4.5
+THRESHOLD=45        # --threshold counts tenths
+
+check() {
+  "$DSBD" --check --config "$CONF" ${DEV:+--dev} || return 1
+  [ -z "$DEV" ] || return 0     # user units: most sandboxing is not scored
+  if ! systemd-analyze security --help 2>/dev/null | grep -q -- --offline; then
+    echo "warning: systemd-analyze has no --offline; units not scored"; return 0
+  fi
+  t="$(mktemp -d)"
+  "$DSBD" --generate "$t" --config "$CONF" >/dev/null
+  bad=0
+  for u in "$t"/dsb-*@.service; do
+    [ -e "$u" ] || continue
+    if ! out="$(systemd-analyze security --offline=yes --threshold="$THRESHOLD" \
+                --no-pager "$u" 2>&1)"; then
+      n="${u##*/dsb-}"; n="${n%@.service}"
+      score="$(printf '%s\n' "$out" | sed -n 's/.*: \([0-9.]*\) [A-Z].*/\1/p' | tail -1)"
+      if grep -q '^# has \*-extra grants' "$u"; then
+        echo "warning: [identity $n]: systemd-analyze exposure ${score:-?} is above $MAX_EXPOSURE, from its *-extra grants"
+      else
+        echo "error: [identity $n]: systemd-analyze exposure ${score:-?} is above $MAX_EXPOSURE with standard keys only: a dsb or systemd regression"
+        bad=1
+      fi
+    fi
+  done
+  rm -rf "$t"
+  return "$bad"
+}
+
 running() { $SC list-units --plain --no-legend --all 'dsb-*.socket' | awk '{print $1}'; }
 
 stop_removed() {
@@ -60,13 +98,14 @@ stop_removed() {
 
 case "$1" in
   check)
-    "$DSBD" --check --config "$CONF" && echo "$CONF: ok" ;;
+    if [ "${2:-}" = --show-deny ]; then exec "$DSBD" --show-deny --config "$CONF"; fi
+    check && echo "$CONF: ok" ;;
   list)
     for n in $("$DSBD" --identities --config "$CONF"); do
       printf '%-16s %s\n' "$n" "$($SC is-active "dsb-$n.socket" || true)"
     done ;;
   apply)
-    "$DSBD" --check --config "$CONF" || { echo "nothing changed" >&2; exit 1; }
+    check || { echo "nothing changed" >&2; exit 1; }
     if [ -n "$DEV" ]; then
       mkdir -p "$D/bin" "$UNITS"
       # the sandbox has a private /tmp and a read-only $HOME: copy both in

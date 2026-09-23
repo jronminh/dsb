@@ -44,15 +44,22 @@ Also out of scope: kernel or systemd sandbox escapes, and side channels.
   type into the caller's shell afterwards; the package sets
   `dev.tty.legacy_tiocsti = 0` and `dsb-admin` refuses to run with it on.
   Other terminal tricks (escape sequences) are possible, as with `sudo`.
-- The forbidden `write =` paths cover the base system, not every service:
-  a daemon that starts as root (nginx, lighttpd, cups, …) reads its config
-  under `/etc`, often with a way to run code. Granting such a directory
-  grants root; `dsb-admin` warns about any `write =` under `/etc`.
+- The fixed limits and their sources are in
+  [`docs/standards.md`](docs/standards.md). `write =` is an allowlist (data
+  directories no package owns); `write-extra`, `groups-extra` and
+  `caps-extra` step outside it, with a warning, and are only as safe as the
+  admin's check. No key reaches the built-in deny list (`/etc`, `/usr`,
+  `/run/user`, root-equivalent groups and capabilities).
+- An `-extra` path can still be one a root process reads: a daemon that
+  starts as root reads its config, often with a way to run code. Grant data,
+  never config.
 - `commands =` matches programs, not their arguments.
 - With several `callers`, the socket is mode `0666` and `SO_PEERCRED` alone
   decides who may call.
 - `user = dynamic` identities may leave files owned by a released uid if
   they write outside `/run` or `/var/lib`; shells are refused for them.
+- The package-ownership lookup for `write =` runs at `check` time; a package
+  installed later can claim the path. Run `dsb-admin check` after upgrades.
 
 ## Reporting a vulnerability
 
