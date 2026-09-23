@@ -1,0 +1,99 @@
+#!/bin/sh
+# dsb-admin: the admin's one tool for dsb. dsb.conf is the only source of
+# truth; units are generated from it at boot and on every apply
+# (dsb-generator), users are created from it (systemd-sysusers).
+#
+#   dsb-admin check    validate /etc/dsb/dsb.conf and conf.d/*.conf
+#   dsb-admin apply    validate, create the identities' users, regenerate
+#                       the units, (re)start their sockets, stop removed ones
+#   dsb-admin list     enabled identities and their sockets
+#
+#   dsb-admin --dev [--config FILE] apply | stop | env
+#                       the same as your own user units, to test without
+#                       root: the sandbox, policy and protocol are real, the
+#                       identity is you (a user manager cannot switch users)
+set -eu
+
+DSBD="${DSBD:-/usr/libexec/dsb/dsbd}"
+CONF=/etc/dsb/dsb.conf
+DEV=
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dev) DEV=1 ;;
+    --config) CONF="$(realpath "$2")"; shift ;;
+    -h|--help) usage 0 ;;
+    *) break ;;
+  esac
+  shift
+done
+[ $# -ge 1 ] || usage
+
+if [ -n "$DEV" ]; then
+  # a source checkout: use (and build) its dsbd
+  if [ -x "$HERE/../build.sh" ]; then "$HERE/../build.sh" >/dev/null; DSBD="$HERE/../out/dsbd"; fi
+  RT="${XDG_RUNTIME_DIR:?}"
+  D="$RT/dsb-dev"
+  UNITS="$RT/systemd/user"
+  SC="systemctl --user"
+else
+  UNITS=/run/systemd/generator
+  SC=systemctl
+fi
+
+running() { $SC list-units --plain --no-legend --all 'dsb-*.socket' | awk '{print $1}'; }
+
+stop_removed() {
+  keep=" $(printf '%s ' $("$DSBD" --identities --config "$CONF")) "
+  for u in $(running); do
+    n="${u#dsb-}"; n="${n%.socket}"
+    case "$keep" in *" $n "*) ;; *) $SC stop "$u"; echo "stopped: $n" ;; esac
+  done
+}
+
+case "$1" in
+  check)
+    "$DSBD" --check --config "$CONF" && echo "$CONF: ok" ;;
+  list)
+    for n in $("$DSBD" --identities --config "$CONF"); do
+      printf '%-16s %s\n' "$n" "$($SC is-active "dsb-$n.socket" || true)"
+    done ;;
+  apply)
+    "$DSBD" --check --config "$CONF" || { echo "nothing changed" >&2; exit 1; }
+    if [ -n "$DEV" ]; then
+      mkdir -p "$D/bin" "$UNITS"
+      # the sandbox has a private /tmp and a read-only $HOME: copy both in
+      install -m 755 "$DSBD" "$D/bin/dsbd"
+      rm -rf "$D/etc"; mkdir -p "$D/etc"
+      cp "$CONF" "$D/etc/dsb.conf"
+      [ ! -d "$(dirname "$CONF")/conf.d" ] || cp -r "$(dirname "$CONF")/conf.d" "$D/etc/"
+      CONF="$D/etc/dsb.conf"
+      rm -f "$UNITS"/dsb-*.socket "$UNITS"/dsb-*@.service "$UNITS"/sockets.target.wants/dsb-*
+      "$DSBD" --generate "$UNITS" --config "$CONF" --dev --rundir "$D" --dsbd "$D/bin/dsbd"
+      $SC daemon-reload
+    else
+      [ "$(id -u)" = 0 ] || { echo "dsb-admin apply: run as root" >&2; exit 1; }
+      [ "$CONF" = /etc/dsb/dsb.conf ] || { echo "the generator reads /etc/dsb/dsb.conf only" >&2; exit 1; }
+      users="$("$DSBD" --sysusers --config "$CONF")"
+      [ -z "$users" ] || printf '%s\n' "$users" | systemd-sysusers -
+      $SC daemon-reload                            # reruns dsb-generator
+    fi
+    stop_removed
+    for n in $("$DSBD" --identities --config "$CONF"); do
+      $SC restart "dsb-$n.socket"; echo "enabled: $n"
+    done
+    [ -z "$DEV" ] || echo "export DSB_RUNDIR=$D" ;;
+  stop)
+    [ -n "$DEV" ] || usage
+    for u in $(running); do $SC stop "$u"; done
+    rm -f "$UNITS"/dsb-*.socket "$UNITS"/dsb-*@.service "$UNITS"/sockets.target.wants/dsb-*
+    $SC daemon-reload
+    rm -rf "$D" ;;
+  env)
+    [ -n "$DEV" ] || usage
+    echo "export DSB_RUNDIR=$D" ;;
+  *) usage ;;
+esac
