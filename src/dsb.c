@@ -1,4 +1,4 @@
-// dsb — debian superuser bridge: run a command as a bounded middle identity,
+// dsb — debian sandboxed bridge: run a command as a bounded middle identity,
 // never root.
 //
 // The client side. It hands its own stdin/stdout/stderr to dsbd over a unix

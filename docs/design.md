@@ -1,6 +1,6 @@
 # dsb design
 
-`dsb` (debian superuser bridge) is `sudo` for a bounded middle identity
+`dsb` (debian sandboxed bridge) is `sudo` for a bounded middle identity
 instead of the super user: same usage, never root.
 
 ## The idea, taken from Android

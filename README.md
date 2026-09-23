@@ -1,4 +1,4 @@
-# dsb — debian superuser bridge
+# dsb — debian sandboxed bridge
 
 `sudo` for a **bounded middle identity** instead of root.
 
@@ -23,6 +23,13 @@ The idea comes from Android's `adb shell`: a command that runs anything, as
 an identity (`shell`, uid 2000) whose power is fixed in advance. dsb makes
 that identity configurable.
 
+**The name.** *debian*: the limits come from Debian's own standards (Debian
+Policy's UID ranges, base-passwd's group list, the dpkg database).
+*sandboxed*: every call runs in a fresh systemd sandbox, never as root.
+*bridge*: it carries you across to another identity, with your terminal,
+pipes and exit status intact. (It was first "superuser bridge", which
+described what it replaces, not what it is.)
+
 > [!CAUTION]
 > **Early, AI-assisted and unaudited.** Written with an AI assistant, tested
 > on one Debian sid machine. Read the code (≈ 1 500 lines of C and sh) before trusting it.
@@ -43,10 +50,12 @@ dsb CMD ──unix socket + its own fds 0,1,2──▶ systemd (Accept=yes)
 - **No relaying.** The caller's stdin/stdout/stderr are passed with
   `SCM_RIGHTS`: pipes stay byte-exact, the terminal stays the terminal,
   exit status and signals come back.
-- **Four kernel-enforced locks** per identity: its own user and granted
+- **Kernel-enforced locks** per identity: its own user and granted
   groups; `ProtectSystem=strict` with only the `write =` paths writable;
   `NoNewPrivileges` and no capabilities beyond an allowlist; optionally
-  `ExecPaths=` so only the listed commands can be executed at all.
+  `ExecPaths=` so only the listed commands can be executed at all. Around
+  them, a hardened unit: no `/run/user`, no devices, namespaces, realtime
+  or clock changes unless the policy grants them.
 - **Never feed root.** Every grant is checked against a published standard
   ([`docs/standards.md`](docs/standards.md)): `write =` only to data dirs no
   package owns, groups from base-passwd's safe list, capabilities off
@@ -56,7 +65,12 @@ dsb CMD ──unix socket + its own fds 0,1,2──▶ systemd (Accept=yes)
   `CAP_SYS_ADMIN`, …) is out of reach of any key.
 
 Full design, rejected alternatives and test results:
-[`docs/design.md`](docs/design.md).
+[`docs/design.md`](docs/design.md). Every fixed limit and its source:
+[`docs/standards.md`](docs/standards.md).
+
+dsb never runs anything as root. For a fixed root command (restart one
+service, reset one device), see the companion proposal
+[rootcall](https://github.com/jronminh/dsb/issues/1).
 
 ## Build and install
 
@@ -73,6 +87,7 @@ The package enables nothing by itself. Then, as root:
 
 ```sh
 editor /etc/dsb/dsb.conf       # or add a file in /etc/dsb/conf.d/
+dsb-admin check                # errors, warnings for each -extra, unit scores
 dsb-admin apply                # validate, create users, generate units, start sockets
 dsb-admin list
 ```
@@ -97,7 +112,17 @@ user     = dynamic
 commands = /usr/bin/ping /usr/bin/ss
 caps     = CAP_NET_RAW
 timeout  = 60
+
+[identity logs]
+commands    = /usr/bin/journalctl
+groups      = systemd-journal         # on the allowlist: silent
+write-extra = /var/log/myapp          # outside it: a warning on every check
+network     = no
 ```
+
+Every grant has three levels: `KEY =` inside the standard allowlist,
+`KEY-extra =` outside it with a warning, and a built-in deny list no key
+reaches (`dsb-admin check --show-deny`).
 
 Keys: `user`, `callers`, `shell`, `edit`, `commands`, `write`, `groups`,
 `caps` (and their `-extra` forms), `network`, `devices`, `jit`,
@@ -138,8 +163,8 @@ src/dsb-admin --dev stop
 
 ## Status
 
-0.1.0, a working prototype. Tested rootless (`tests/dev-test.sh`) and
-installed system-wide on Debian sid with separate uids, a `DynamicUser`
+0.1.0, a working prototype. Tested rootless (`tests/dev-test.sh`, 67
+checks) and installed system-wide on Debian sid with separate uids, a `DynamicUser`
 identity and an ambient capability (results in
 [`docs/design.md`](docs/design.md#testing)). Not yet verified:
 the generator at an actual boot. Linux-only by design (`SO_PEERCRED`,
@@ -148,7 +173,8 @@ systemd).
 ## Used by
 
 - [sudo-less](https://github.com/jronminh/sudo-less) — userspace `apt`/`dpkg`
-  into `~/.local`; dsb covers the one privileged step some packages need.
+  into `~/.local`; its dsb policy gives the developer a fresh empty account
+  for testing installs and a journal reader, without root.
 
 ## License
 
