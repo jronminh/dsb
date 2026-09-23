@@ -145,7 +145,8 @@ static void generate(struct conf *c, const char *dir, const char *confpath,
         if (!f) die("cannot write units");
         fprintf(f, "# generated from %s by dsbd --generate; edit that file instead\n"
                    "[Unit]\nDescription=dsb identity %s\n\n[Socket]\n"
-                   "ListenStream=%s/%s.sock\nAccept=yes\nMaxConnections=64\n",
+                   "ListenStream=%s/%s.sock\nAccept=yes\nMaxConnections=64\n"
+                   "RemoveOnStop=yes\n",
                 confpath, id->name, rundir, id->name);
         if (dev) {
             fputs("SocketMode=0600\n", f);

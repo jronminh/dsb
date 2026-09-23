@@ -74,7 +74,11 @@ check "bad config is not applied"    1 "nothing changed" -- "$ADMIN" --dev --con
 rm "$C/conf.d/bad.conf"
 
 echo "== apply"
-check "apply enables 3 identities"   0 "enabled: tight" -- "$ADMIN" --dev --config "$C/dsb.conf" apply
+printf '[identity gone]\ncommands = /usr/bin/id\n' > "$C/conf.d/gone.conf"
+check "apply enables 4 identities"   0 "enabled: gone" -- "$ADMIN" --dev --config "$C/dsb.conf" apply
+rm "$C/conf.d/gone.conf"
+check "apply stops a removed one"    0 "stopped: gone" -- "$ADMIN" --dev --config "$C/dsb.conf" apply
+check "its socket file is gone"      0 ""        -- test ! -e "$RT/dsb-dev/gone.sock"
 export DSB_RUNDIR="$RT/dsb-dev"
 
 echo "== commands"

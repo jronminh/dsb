@@ -37,10 +37,12 @@ if [ -n "$DEV" ]; then
   if [ -x "$HERE/../build.sh" ]; then "$HERE/../build.sh" >/dev/null; DSBD="$HERE/../out/dsbd"; fi
   RT="${XDG_RUNTIME_DIR:?}"
   D="$RT/dsb-dev"
+  RUNDIR="$D"
   UNITS="$RT/systemd/user"
   SC="systemctl --user"
 else
   UNITS=/run/systemd/generator
+  RUNDIR=/run/dsb
   SC=systemctl
 fi
 
@@ -50,7 +52,9 @@ stop_removed() {
   keep=" $(printf '%s ' $("$DSBD" --identities --config "$CONF")) "
   for u in $(running); do
     n="${u#dsb-}"; n="${n%.socket}"
-    case "$keep" in *" $n "*) ;; *) $SC stop "$u"; echo "stopped: $n" ;; esac
+    # the unit file is already gone, so its RemoveOnStop= is too: remove
+    # the socket file here, or a stale one stays and says "cannot reach"
+    case "$keep" in *" $n "*) ;; *) $SC stop "$u"; rm -f "$RUNDIR/$n.sock"; echo "stopped: $n" ;; esac
   done
 }
 
