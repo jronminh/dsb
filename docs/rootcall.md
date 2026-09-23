@@ -135,11 +135,13 @@ rootcall NAME ──unix socket──▶ systemd (Accept=yes; root, sandboxed)
 ### Use with dsb
 
 No change in dsb: an identity that may run `/usr/bin/rootcall` and is in the
-file's group can make that one call.
+file's group can make that one call. The group is not on dsb's allowlist,
+so it goes in `groups-extra`, and `dsb-admin check` warns about it on every
+run: a grant of a root action should stay visible.
 
 ```ini
 [identity monitor]
-groups   = rootcall-smart
+groups-extra = rootcall-smart
 commands = /usr/bin/rootcall
 ```
 
