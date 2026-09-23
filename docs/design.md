@@ -292,9 +292,9 @@ willing to grant once instead of handing out `sudo`:
   of root. Root-executed config (`/etc/tmpfiles.d`, units, PAM, setuid) stays
   out of reach by design.
 
-## Testing without root
+## Testing
 
-`tests/dev-test.sh` runs the whole stack as runtime user units
+Without root, `tests/dev-test.sh` runs the whole stack as runtime user units
 (`dsb-admin --dev`): the sandbox, the policy, the protocol and the client are
 real, but a user manager cannot switch users, so both ends are the same uid.
 It checks exit and signal status, quoting, stdin, cwd, environment filtering,
@@ -309,9 +309,27 @@ call; Ctrl-C at the prompt cancels the line, during a command gives 130;
 alone left `/home` writable, so `ProtectHome=read-only` is required; a plain
 `systemd-socket-activate` (no cgroup) leaves orphans, a socket unit does not.
 
-Not yet verified: the package installed system-wide, so a different uid on
-the far end, `DynamicUser=` with `dsbd`, `AmbientCapabilities=`, the
-generator at boot.
+Installed system-wide (Debian sid, systemd 261, 2026-09-23), with a test
+`conf.d` file giving one caller a default identity, a static `web` identity
+(`write = /srv/dsb-test`, five commands) and a dynamic `probe` identity
+(`caps = CAP_NET_RAW`):
+
+| check | result |
+|---|---|
+| `dsb-admin apply` | users `dsb` (970) and `dsb-web` (969) created by `systemd-sysusers`; sockets `root:<caller's group> 0660`; units under `/run/systemd/generator` |
+| `dsb id`, `dsb -u web id` | the identity's uid and group only; `HOME=/var/lib/dsb/NAME` |
+| `dsb -u probe id` | a dynamic uid (61277, `dsb-probe`); `CapEff`/`CapBnd`/`CapAmb` = `CAP_NET_RAW` only; `ping` works |
+| default identity | `CapEff 0`, `CapBnd 0`, `NoNewPrivs 1`; `dsb sudo id` refused by sudo itself; `/etc` read-only; caller's home `Permission denied` (DAC, other uid) |
+| `write =` | `dsb -u web mkdir -p /srv/dsb-test/a` → owned by `dsb-web`; the dynamic identity cannot write there (DAC), as designed |
+| `-e` as `web` | the editor ran as the caller, the file was written back owned by `dsb-web` |
+| cwd in the caller's `0700` home | falls back to the identity's home with a warning; `-D` fails |
+| bare `dsb` on a terminal | `dsb> ` prompt, `id -un` = `dsb`, the caller's pty, `exit 4` → 4 |
+| another uid (not in the socket group) | `connect` refused by the kernel: "you may not call identity 'web'" |
+| audit | each call is journalled by `dsbd` (caller pid and uid, mode, cwd, argv, exit status) in its own `dsb-NAME@….service` |
+
+Not yet verified: the generator at an actual boot, and a caller in the
+socket's group but not in `callers =` (the `SO_PEERCRED` refusal is tested
+only in dev mode).
 
 ## Open questions
 

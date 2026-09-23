@@ -6,9 +6,9 @@ product. Please read this before deploying it.
 ## Status
 
 **Unaudited.** dsb 0.1.0 is a prototype written with AI assistance. Its
-policy, protocol and sandbox are tested with both ends running as the same
-uid (`tests/dev-test.sh`); the installed, cross-uid setup has not been
-tested yet. Do not rely on it where a mistake would be costly.
+policy, protocol and sandbox are tested rootless (`tests/dev-test.sh`) and
+installed system-wide on one Debian sid machine with separate uids
+(`docs/design.md`). Do not rely on it where a mistake would be costly.
 
 ## Threat model
 

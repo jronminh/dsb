@@ -25,8 +25,7 @@ that identity configurable.
 
 > [!CAUTION]
 > **Early, AI-assisted and unaudited.** Written with an AI assistant, tested
-> on one Debian sid machine, and not yet tested installed system-wide with a
-> separate uid. Read the code (≈ 1 500 lines of C and sh) before trusting it.
+> on one Debian sid machine. Read the code (≈ 1 500 lines of C and sh) before trusting it.
 > See [`SECURITY.md`](SECURITY.md).
 
 ## How it works
@@ -134,9 +133,12 @@ src/dsb-admin --dev stop
 
 ## Status
 
-0.1.0, a working prototype. Not yet verified: installed system-wide (a
-separate uid on the far end, `DynamicUser=` identities, capabilities, the
-generator at boot). Linux-only by design (`SO_PEERCRED`, systemd).
+0.1.0, a working prototype. Tested rootless (`tests/dev-test.sh`) and
+installed system-wide on Debian sid with separate uids, a `DynamicUser`
+identity and an ambient capability (results in
+[`docs/design.md`](docs/design.md#testing)). Not yet verified:
+the generator at an actual boot. Linux-only by design (`SO_PEERCRED`,
+systemd).
 
 ## Used by
 

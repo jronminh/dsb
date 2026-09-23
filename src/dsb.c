@@ -111,8 +111,10 @@ static int run(const char *mode, struct list *argv, const char *cwd, int strict,
     struct sockaddr_un a = { .sun_family = AF_UNIX };
     if (strlen(sockpath) >= sizeof(a.sun_path)) die("socket path too long: %s", sockpath);
     memcpy(a.sun_path, sockpath, strlen(sockpath) + 1);
-    if (s < 0 || connect(s, (struct sockaddr *)&a, sizeof(a)) < 0)
+    if (s < 0 || connect(s, (struct sockaddr *)&a, sizeof(a)) < 0) {
+        if (errno == EACCES) die("you may not call identity '%s' (callers in dsb.conf)", ident);
         die("cannot reach %s", sockpath);
+    }
 
     char hdr[DSB_MAGIC_LEN + 4];
     uint32_t len = (uint32_t)b.n;
